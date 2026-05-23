@@ -9,6 +9,7 @@ use std::env;
 pub struct Config {
     pub db_dir: PathBuf,
     pub db_pooled: bool,
+    pub write: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -16,6 +17,9 @@ pub struct Config {
 struct CliArgs {
     #[arg(long)]
     pooled: bool,
+
+    #[arg(long)]
+    write: bool,
 }
 
 impl Config {
@@ -26,6 +30,7 @@ impl Config {
         Ok(Config {
             db_dir,
             db_pooled: cli.pooled,
+            write: cli.write,
         })
     }
 }
