@@ -1,19 +1,26 @@
 # Agent Notes
 
-## Current Reality (verify before assuming more)
-- This repo is a minimal Rust binary crate, not a workspace: `Cargo.toml` defines one package (`edition = "2024"`) and `src/main.rs` is the only code entrypoint.
-- `src/main.rs` currently only prints `Hello, world!`; there is no Turso client logic yet.
-- There is no CI config, task runner, formatter config, linter config, or pre-commit config checked in.
+## Repo Shape
+- Single Rust binary crate (not a workspace): `Cargo.toml` defines one package (`edition = "2024"`).
+- Entrypoint flow is `src/main.rs` -> `run_command()` -> `src/run.rs::run()`.
+- Turso integration lives in `src/db/`; app currently just opens `${DATABASE_DIR}/sample.db` and exits.
 
-## Commands That Matter
-- Run the app: `cargo run`
-- Run tests (currently no test files, so this mainly verifies compile/test harness setup): `cargo test`
+## Commands
+- Run app (required env): `DATABASE_DIR=db cargo run`
+- Smoke-check compile/test harness: `cargo test` (currently runs 0 tests)
 
-## Repo-Specific Files
-- SQL lives under `migrations/`; `migrations/sample.sql` is a standalone sample migration and is not auto-applied by any script in this repo.
-- `db/` is kept in git via `db/.gitignore`, while local Turso/SQLite artifacts in that directory (`*.db`, `*.db-wal`, `*.db-shm`) are ignored; do not commit generated DB files.
+## Runtime Requirements
+- `DATABASE_DIR` is mandatory (`Config::build()` errors immediately if missing/empty).
+- `RUST_LOG_MAX` is optional but must parse as a `tracing::Level` (invalid value exits at startup).
 
-## Guardrails for Future Edits
-- Keep guidance grounded in executable truth from this repo; README is currently minimal and does not describe runtime/setup beyond project intent.
-- If adding concurrency/Turso behavior, document new run/setup steps in this file only after verifying commands actually work in-repo.
-- Never run `git commit`, `git push`, `git commit --amend`, or any history-rewriting git command from an agent session; all commit/push/history actions are strictly user-only.
+## Database and Migrations
+- `migrations/sample.sql` is not auto-applied; apply it manually (README uses `tursodb db/sample.db < migrations/sample.sql`).
+- `db/` is intentionally tracked via `db/.gitignore`.
+- Only `*.db`, `*.db-wal`, and `*.db-shm` are ignored in `db/`; local runs may create other sidecars (for example `*.db-log`) that show up as untracked.
+
+## Tooling Reality
+- No CI workflows, task runner, linter config, formatter config, or pre-commit config are checked in.
+
+## Git Guardrail
+- Agents must not run `git commit`, `git commit --amend`, `git push`, or any history-rewriting git command in this repo.
+- Leave all changes unstaged or staged only as requested; the human user is responsible for creating commits.
