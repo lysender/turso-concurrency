@@ -3,13 +3,13 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use snafu::ResultExt;
+use snafu::{OptionExt, ResultExt};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::timeout;
 use turso::{Builder, Connection};
 
-use crate::Result;
-use crate::error::{DbBuilderSnafu, DbConnectSnafu, DbExecuteSnafu, DbPoolConfigSnafu, Error};
+use crate::error::{DbBuilderSnafu, DbConnectSnafu, DbExecuteSnafu, DbPoolConfigSnafu};
+use crate::{Error, Result};
 
 const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -33,7 +33,11 @@ impl DbPool {
             .fail();
         }
 
-        let db = Builder::new_local(filename.to_str().expect("DB path is required"))
+        let file_str = filename.to_str().context(DbPoolConfigSnafu {
+            msg: "DB path must be a valid UTF-8 string".to_string(),
+        })?;
+
+        let db = Builder::new_local(file_str)
             .build()
             .await
             .context(DbBuilderSnafu)?;
@@ -73,13 +77,15 @@ impl DbPool {
         })?;
 
         let conn = {
-            let mut idle = self.pool.idle_connections.lock().map_err(|_| {
-                crate::error::Error::DbPoolState {
+            let mut idle = self
+                .pool
+                .idle_connections
+                .lock()
+                .map_err(|_| Error::DbPoolState {
                     msg: "idle_connections mutex poisoned".to_string(),
-                }
-            })?;
+                })?;
 
-            idle.pop().ok_or_else(|| crate::error::Error::DbPoolState {
+            idle.pop().ok_or_else(|| Error::DbPoolState {
                 msg: "Permit acquired but no idle connection was available".to_string(),
             })?
         };
@@ -247,10 +253,7 @@ mod tests {
         yield_now().await;
 
         let res = waiting.await.expect("join should succeed");
-        assert!(matches!(
-            res,
-            Err(crate::error::Error::DbPoolAcquireTimeout { .. })
-        ));
+        assert!(matches!(res, Err(Error::DbPoolAcquireTimeout { .. })));
 
         cleanup_db_files(db_path.as_path());
     }
@@ -260,7 +263,7 @@ mod tests {
         let db_path = temp_db_path("zero-size");
         let res = DbPool::new(db_path.as_path(), 0).await;
 
-        assert!(matches!(res, Err(crate::error::Error::DbPoolConfig { .. })));
+        assert!(matches!(res, Err(Error::DbPoolConfig { .. })));
 
         cleanup_db_files(db_path.as_path());
     }
