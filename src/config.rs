@@ -1,3 +1,4 @@
+use clap::Parser;
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -7,13 +8,25 @@ use std::env;
 #[derive(Clone, Deserialize)]
 pub struct Config {
     pub db_dir: PathBuf,
+    pub db_pooled: bool,
+}
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct CliArgs {
+    #[arg(long)]
+    pooled: bool,
 }
 
 impl Config {
     pub fn build() -> Result<Self> {
+        let cli = CliArgs::parse();
         let db_dir = PathBuf::from(required_env("DATABASE_DIR")?);
 
-        Ok(Config { db_dir })
+        Ok(Config {
+            db_dir,
+            db_pooled: cli.pooled,
+        })
     }
 }
 

@@ -1,18 +1,18 @@
 use snafu::ResultExt;
-use turso::Connection;
 
 use crate::Result;
+use crate::db::db_pool::DbPool;
 use crate::db::turso_decode::collect_row;
 use crate::db::turso_params::{integer_param, new_query_params};
 use crate::dto::PostDto;
 use crate::error::DbPrepareSnafu;
 
-pub struct PostRepo {
-    db_pool: Connection,
+pub struct PooledPostRepo {
+    db_pool: DbPool,
 }
 
-impl PostRepo {
-    pub fn new(db_pool: Connection) -> Self {
+impl PooledPostRepo {
+    pub fn new(db_pool: DbPool) -> Self {
         Self { db_pool }
     }
 
@@ -31,7 +31,8 @@ impl PostRepo {
         let mut q_params = new_query_params();
         q_params.push(integer_param(":id", id));
 
-        let mut stmt = self.db_pool.prepare(query).await.context(DbPrepareSnafu)?;
+        let conn = self.db_pool.acquire().await?;
+        let mut stmt = conn.prepare(query).await.context(DbPrepareSnafu)?;
         let row_result = stmt.query_row(q_params).await;
         let dto: Option<PostDto> = collect_row(row_result)?;
         Ok(dto)
