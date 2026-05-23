@@ -1,5 +1,5 @@
 [package]
-name = "turso-concurrent-reads"
+name = "turso-concurrency"
 version = "0.1.0"
 edition = "2024"
 
