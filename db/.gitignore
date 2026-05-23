@@ -1,0 +1,7 @@
+# Ignore local Turso/SQLite database files
+*.db
+*.db-wal
+*.db-shm
+
+# Keep this directory tracked
+!.gitignore
