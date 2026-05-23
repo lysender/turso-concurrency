@@ -6,6 +6,7 @@ use std::time::Duration;
 use snafu::{OptionExt, ResultExt, ensure};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::timeout;
+use tracing::warn;
 use turso::{Builder, Connection};
 
 use crate::error::{DbBuilderSnafu, DbConnectSnafu, DbExecuteSnafu, DbPoolConfigSnafu};
@@ -77,13 +78,15 @@ impl DbPool {
         })?;
 
         let conn = {
-            let mut idle = self
-                .pool
-                .idle_connections
-                .lock()
-                .map_err(|_| Error::DbPoolState {
-                    msg: "idle_connections mutex poisoned".to_string(),
-                })?;
+            let mut idle = match self.pool.idle_connections.lock() {
+                Ok(idle) => idle,
+                Err(poisoned) => {
+                    warn!(
+                        "idle_connections mutex poisoned while acquiring; recovering pool state"
+                    );
+                    poisoned.into_inner()
+                }
+            };
 
             idle.pop().ok_or_else(|| Error::DbPoolState {
                 msg: "Permit acquired but no idle connection was available".to_string(),
@@ -139,9 +142,15 @@ impl DerefMut for PooledConnection {
 impl Drop for PooledConnection {
     fn drop(&mut self) {
         if let Some(conn) = self.conn.take() {
-            if let Ok(mut idle) = self.inner.idle_connections.lock() {
-                idle.push(conn);
-            }
+            let mut idle = match self.inner.idle_connections.lock() {
+                Ok(idle) => idle,
+                Err(poisoned) => {
+                    warn!("idle_connections mutex poisoned while releasing; recovering pool state");
+                    poisoned.into_inner()
+                }
+            };
+
+            idle.push(conn);
         }
     }
 }
@@ -266,6 +275,41 @@ mod tests {
         let res = DbPool::new(db_path.as_path(), 0).await;
 
         assert!(matches!(res, Err(Error::DbPoolConfig { .. })));
+
+        cleanup_db_files(db_path.as_path());
+    }
+
+    #[tokio::test]
+    async fn acquire_recovers_after_idle_mutex_poisoning() {
+        let db_path = temp_db_path("poison-recover");
+        let pool = DbPool::new(db_path.as_path(), 1)
+            .await
+            .expect("pool to build");
+
+        let poisoned_pool = pool.clone();
+        let join_res = std::thread::spawn(move || {
+            let _idle = poisoned_pool
+                .pool
+                .idle_connections
+                .lock()
+                .expect("lock should succeed before poison");
+            panic!("poison mutex intentionally for test");
+        })
+        .join();
+
+        assert!(join_res.is_err(), "poisoning thread should panic");
+
+        let conn = pool
+            .acquire()
+            .await
+            .expect("acquire should recover after poison");
+        drop(conn);
+
+        let reacquired = tokio::time::timeout(Duration::from_secs(1), pool.acquire())
+            .await
+            .expect("reacquire should finish quickly")
+            .expect("reacquire should recover after poison");
+        drop(reacquired);
 
         cleanup_db_files(db_path.as_path());
     }
