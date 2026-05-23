@@ -62,6 +62,7 @@ impl PostRepo {
         Ok(affected > 0)
     }
 
+    #[allow(dead_code)]
     pub async fn update_with_retry(&self, id: i64, title: String, content: String) -> Result<bool> {
         const MAX_ATTEMPTS: usize = 5;
         let mut backoff = Duration::from_millis(5);

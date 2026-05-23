@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use snafu::{OptionExt, ResultExt};
+use snafu::{OptionExt, ResultExt, ensure};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::timeout;
 use turso::{Builder, Connection};
@@ -26,12 +26,12 @@ struct ConnectionPool {
 
 impl DbPool {
     pub async fn new(filename: &Path, pool_size: usize) -> Result<Self> {
-        if pool_size == 0 {
-            return DbPoolConfigSnafu {
+        ensure!(
+            pool_size > 0,
+            DbPoolConfigSnafu {
                 msg: "pool_size must be greater than zero".to_string(),
             }
-            .fail();
-        }
+        );
 
         let file_str = filename.to_str().context(DbPoolConfigSnafu {
             msg: "DB path must be a valid UTF-8 string".to_string(),
@@ -97,6 +97,7 @@ impl DbPool {
         })
     }
 
+    #[allow(dead_code)]
     pub fn idle_count(&self) -> usize {
         self.pool
             .idle_connections
@@ -105,6 +106,7 @@ impl DbPool {
             .unwrap_or(0)
     }
 
+    #[allow(dead_code)]
     pub fn in_use_count(&self) -> usize {
         self.pool.size.saturating_sub(self.idle_count())
     }
