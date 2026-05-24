@@ -1,14 +1,15 @@
+use std::cmp::min;
 use std::time::Duration;
 
 use snafu::ResultExt;
 use tokio::time::sleep;
 
-use crate::Result;
 use crate::db::db_pool::DbPool;
 use crate::db::turso_decode::collect_row;
 use crate::db::turso_params::{integer_param, new_query_params, text_param};
 use crate::dto::PostDto;
 use crate::error::{DbPrepareSnafu, DbStatementSnafu};
+use crate::{Error, Result};
 
 pub struct PooledPostRepo {
     db_pool: DbPool,
@@ -64,27 +65,39 @@ impl PooledPostRepo {
         Ok(affected > 0)
     }
 
-    #[allow(dead_code)]
-    pub async fn update_with_retry(&self, id: i64, title: String, content: String) -> Result<bool> {
-        const MAX_ATTEMPTS: usize = 5;
-        let mut backoff = Duration::from_millis(5);
+    pub async fn update_with_retry(
+        &self,
+        id: i64,
+        title: String,
+        content: String,
+        max_retries: usize,
+    ) -> Result<bool> {
+        let mut attempts = 0;
+        let mut delay = Duration::from_millis(100);
+        let max_delay = Duration::from_secs(2);
 
-        for attempt in 1..=MAX_ATTEMPTS {
+        loop {
             match self.update(id, title.clone(), content.clone()).await {
-                Ok(updated) => return Ok(updated),
-                Err(err) if is_busy_or_locked(&err) && attempt < MAX_ATTEMPTS => {
-                    sleep(backoff).await;
-                    backoff = backoff.saturating_mul(2);
+                Ok(result) => return Ok(result),
+                Err(Error::DbStatement { source }) => match source {
+                    turso::Error::Busy(..) => {
+                        attempts += 1;
+                        if attempts >= max_retries {
+                            return Err(Error::DbStatement { source });
+                        }
+
+                        sleep(delay).await;
+                        delay = min(delay.saturating_mul(2), max_delay);
+                        // Retries...
+                    }
+                    _ => {
+                        return Err(Error::DbStatement { source });
+                    }
+                },
+                Err(e) => {
+                    return Err(e);
                 }
-                Err(err) => return Err(err),
             }
         }
-
-        unreachable!("loop always returns before reaching here");
     }
-}
-
-fn is_busy_or_locked(err: &crate::error::Error) -> bool {
-    let msg = err.to_string().to_ascii_lowercase();
-    msg.contains("database is locked") || msg.contains("busy")
 }
